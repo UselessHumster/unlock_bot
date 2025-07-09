@@ -13,7 +13,7 @@ def is_ad_user_exists(upn) -> bool:
         return False
 
 def get_ad_user_by_upn(upn):
-    if f'@{settings.domain}' not in upn:
+    if f'@{settings.DOMAIN}' not in upn:
         upn += f'@{settings.DOMAIN}'
 
     if is_ad_user_exists(upn):
