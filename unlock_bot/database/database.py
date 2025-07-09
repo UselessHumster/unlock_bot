@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from unlock_bot.config import settings
@@ -12,8 +12,7 @@ Session = sessionmaker(bind=engine)
 class User(Base):
     __tablename__ = 'users'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    telegram_id = Column(Integer)
+    telegram_id = Column(Integer, primary_key=True)
     permissions = Column(String(50))
     san = Column(String(100), unique=True)
     upn = Column(String(100), unique=True)
