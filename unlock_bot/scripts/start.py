@@ -10,7 +10,7 @@ dp = Dispatcher(bot, storage=MemoryStorage())
 def start():
     reg_commands(dp)
     reg_handlers(dp)
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, filename='Logs/unlock_bot.log', filemode='w')
     executor.start_polling(dp, skip_updates=True)
 
 
