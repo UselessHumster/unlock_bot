@@ -1,12 +1,17 @@
 from unlock_bot.config import settings
-import pyad
+
 from pyad.pyadexceptions import invalidResults
+from pyad import adsearch, aduser
 import subprocess as sp
+
+
+def get_cn_of_ad_user(upn):
+    return adsearch.by_upn(upn)
 
 
 def is_ad_user_exists(upn) -> bool:
     try:
-        pyad.adsearch.by_upn(f'{upn}')
+        get_cn_of_ad_user(upn)
         return True
 
     except invalidResults:
@@ -17,8 +22,8 @@ def get_ad_user_by_upn(upn):
         upn += f'@{settings.DOMAIN}'
 
     if is_ad_user_exists(upn):
-        cn = pyad.adsearch.by_upn(f'{upn}')
-        return pyad.aduser.ADUser.from_dn(cn)
+        cn = get_cn_of_ad_user(upn)
+        return aduser.ADUser.from_dn(cn)
 
     return None
 
