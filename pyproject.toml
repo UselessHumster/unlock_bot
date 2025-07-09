@@ -1,0 +1,21 @@
+[project]
+name = "unlock-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiogram",
+    "dotenv>=0.9.9",
+    "pyad>=0.6.0",
+    "pywin32>=310",
+    "sqlalchemy>=2.0.41",
+]
+
+[tool.uv.sources]
+aiogram = { url = "https://github.com/aiogram/aiogram/archive/refs/heads/dev-2.x.zip" }
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.2",
+]
