@@ -8,8 +8,8 @@ dp = Dispatcher(bot, storage=MemoryStorage())
 
 
 def start():
-    reg_handlers(dp)
     reg_commands(dp)
+    reg_handlers(dp)
     logging.basicConfig(level=logging.INFO)
     executor.start_polling(dp, skip_updates=True)
 
