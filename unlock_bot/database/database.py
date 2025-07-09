@@ -2,8 +2,9 @@ from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+from unlock_bot.config import settings
 
-engine = create_engine('sqlite:///users.db', echo=True)
+engine = create_engine(f'sqlite:///{settings.DATABASE_PATH}', echo=True)
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 

@@ -9,6 +9,7 @@ class Settings:
     DOMAIN = os.getenv("DOMAIN").lower()
     SEARCH_ZONE = os.getenv("SEARCH_ZONE")
     ADMIN_CHAT = int(os.getenv("ADMIN_CHAT"))
+    DATABASE_PATH = os.getenv("DATABASE_PATH")
 
 
     RESTRICTED_SYMBOLS = ['-', ')', '(', '#', '|', '+', '.', '*', '!',
