@@ -23,7 +23,7 @@ async def main_stream(message: types.Message):
     except Exception as exception:
         logging.warn(f'Error at unlocking AD User {exception=}')
         await message.answer('Произошла ошибка, попробуйте снова')
-        await bot.send_message(text=f'Пользователь {tg_username} попытался разблокировать {message=}, но произошла ошибка\n\n'
+        await bot.send_message(text=f'Пользователь {tg_username} попытался разблокировать {message.text=}, но произошла ошибка\n\n'
                                     f'{exception.__str__()}', chat_id=settings.ADMIN_CHAT)
     else:
         msg_to_user = f'✅ Учетная запись {written_upn} успешно разблокирована'
