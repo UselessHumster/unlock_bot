@@ -1,5 +1,3 @@
-from functools import lru_cache
-
 from unlock_bot.config import settings
 
 from pyad.pyadexceptions import invalidResults
@@ -8,7 +6,30 @@ import subprocess as sp
 import logging
 
 
-@lru_cache(maxsize=128)
+def cache(max_size=128):
+    def dec(func):
+        memory = {}
+
+        def wrapper(*args, **kwargs):
+            print(memory)
+            if cached_data := memory.get(args[0]):
+                return cached_data
+
+            data = func(*args, **kwargs)
+            memory[args[0]] = data
+
+            if len(memory) > max_size:
+                first_key = next(iter(memory))
+                memory.pop(first_key)
+
+            return data
+
+        return wrapper
+
+    return dec
+
+
+@cache()
 def get_cn_of_ad_user(upn):
     logging.info(f'Searching cn by {upn=}')
     cn = adsearch.by_upn(upn)
@@ -52,5 +73,6 @@ def get_locked_users_list() -> list:
             if 'UserPrincipalName' in i:
                 locked_users_list.append(i.split(':')[1].strip().replace(f'@{settings.DOMAIN}', ''))
         return locked_users_list
+
 
 
