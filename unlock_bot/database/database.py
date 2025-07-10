@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 from unlock_bot.config import settings
 
-engine = create_engine(f'sqlite:///{settings.DATABASE_PATH}', echo=True)
+engine = create_engine(f'sqlite:///{settings.DATABASE_PATH}', echo=False)
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 
