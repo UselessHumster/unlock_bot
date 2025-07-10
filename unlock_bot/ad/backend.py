@@ -14,15 +14,15 @@ def cache(max_size=128):
             if len(memory) > max_size:
                 first_key = next(iter(memory))
                 removed_item = memory.pop(first_key)
-                #logging.info(f'Popping from cache {removed_item}')
+                logging.info(f'Popping from cache {removed_item}')
 
             if cached_data := memory.get(args[0]):
                 return cached_data
 
             data = func(*args, **kwargs)
             memory[args[0]] = data
-            print(f'{data=}')
-            #logging.info(f'Caching {args[0]}')
+
+            logging.info(f'Caching {args[0]}')
 
             return data
 
