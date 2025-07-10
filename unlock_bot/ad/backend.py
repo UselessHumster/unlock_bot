@@ -61,7 +61,6 @@ def get_ad_user_by_upn(upn):
     if is_ad_user_exists(upn):
         cn = get_cn_of_ad_user(upn)
         ad_user = aduser.ADUser.from_dn(cn)
-        ad_user = aduser.ADUser.from_cn(cn)
         logging.info(f'Found {ad_user=}')
         return ad_user
 
