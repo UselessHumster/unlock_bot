@@ -15,14 +15,20 @@ async def main_stream(message: types.Message):
         await message.answer('У Вас не хватает прав доступа')
         return
 
-    written_upn = message.text.split()[0:1][0]
+    written_upn = clearing_message(message)
     ad_user = get_ad_user_by_upn(written_upn)
-    ad_user.unlock()
-    msg_to_user = f'✅ Учетная запись {written_upn} успешно разблокирована'
-    msg_to_admin = f' успешно разблокировал {written_upn} ✅'
-    text_for_admin = f'Пользователь {tg_username} с ID {str(message.from_user.id)} {msg_to_admin}'
-    await message.answer(msg_to_user)
-    await bot.send_message(text=text_for_admin, chat_id=settings.ADMIN_CHAT)
+    try:
+        ad_user.unlock()
+    except Exception as exception:
+        await message.answer('Произошла ошибка, попробуйте снова')
+        await bot.send_message(text=f'Пользователь {tg_username} попытался разблокировать {message=}, но произошла ошибка\n\n'
+                                    f'{exception}', chat_id=settings.ADMIN_CHAT)
+    else:
+        msg_to_user = f'✅ Учетная запись {written_upn} успешно разблокирована'
+        msg_to_admin = f' успешно разблокировал {written_upn} ✅'
+        text_for_admin = f'Пользователь {tg_username} с ID {str(message.from_user.id)} {msg_to_admin}'
+        await message.answer(msg_to_user)
+        await bot.send_message(text=text_for_admin, chat_id=settings.ADMIN_CHAT)
 
 
 async def registering(message: types.Message, state: FSMContext):
