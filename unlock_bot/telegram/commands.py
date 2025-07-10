@@ -2,7 +2,7 @@ from unlock_bot.config import settings, bot
 from unlock_bot.config.aiogram_collection import types, FSMContext, Dispatcher
 from unlock_bot.database import get_user_by_tg_id, change_upn, change_san
 from unlock_bot.telegram.states import RegStates, ConnectStates
-from unlock_bot.telegram.utils import get_tg_username, is_command_with_username
+from unlock_bot.telegram.utils import get_tg_username, is_command_with_username, unlock_user
 from unlock_bot.active_directory import get_ad_user_by_upn, is_ad_user_exists, get_locked_users_list
 
 
@@ -28,15 +28,7 @@ async def command_unlock(message: types.Message):
                              'Например: /connect s_kinzersky')
         return
 
-    ad_user = get_ad_user_by_upn(user.upn)
-    ad_user.unlock()
-
-    to_user = '✅Учетная запись успешно разблокирована'
-    to_admin = f'✅Пользователь {tg_username} успешно разблокировал себя ({user.upn}) с помощью команды ' \
-               f'/unlock'
-
-    await message.answer(to_user)
-    await bot.send_message(text=to_admin, chat_id=settings.ADMIN_CHAT)
+    await unlock_user(message, tg_username, user.upn)
 
 
 async def command_connect(message: types.Message, state: FSMContext):

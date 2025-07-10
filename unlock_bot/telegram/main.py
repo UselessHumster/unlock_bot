@@ -1,10 +1,12 @@
 import logging
 from unlock_bot.config.aiogram_collection import types, FSMContext, Dispatcher, Text, ContentType
 from unlock_bot.config import bot, settings
-from unlock_bot.telegram.utils import get_tg_username, clearing_message
+from unlock_bot.telegram.utils import get_tg_username, clearing_message, unlock_user
 from unlock_bot.telegram.states import RegStates
 from unlock_bot.database import get_user_by_tg_id, create_user
-from unlock_bot.active_directory import get_ad_user_by_upn, is_ad_user_exists
+from unlock_bot.active_directory import is_ad_user_exists
+
+
 
 
 async def main_stream(message: types.Message):
@@ -17,21 +19,9 @@ async def main_stream(message: types.Message):
         return
 
     written_upn = clearing_message(message)
+    await unlock_user(message, tg_username, written_upn)
 
-    try:
-        ad_user = get_ad_user_by_upn(written_upn)
-        ad_user.unlock()
-    except Exception as exception:
-        logging.warn(f'Error at unlocking AD User {exception=}')
-        await message.answer('Произошла ошибка, попробуйте снова')
-        await bot.send_message(text=f'Пользователь {tg_username} попытался разблокировать {message.text=}, но произошла ошибка\n\n'
-                                    f'{exception.__str__()}', chat_id=settings.ADMIN_CHAT)
-    else:
-        msg_to_user = f'✅ Учетная запись {written_upn} успешно разблокирована'
-        msg_to_admin = f' успешно разблокировал {written_upn} ✅'
-        text_for_admin = f'Пользователь {tg_username} с ID {str(message.from_user.id)} {msg_to_admin}'
-        await message.answer(msg_to_user)
-        await bot.send_message(text=text_for_admin, chat_id=settings.ADMIN_CHAT)
+
 
 
 async def registering(message: types.Message, state: FSMContext):
