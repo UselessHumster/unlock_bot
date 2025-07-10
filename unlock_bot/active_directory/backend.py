@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from unlock_bot.config import settings
 
 from pyad.pyadexceptions import invalidResults
@@ -6,6 +8,7 @@ import subprocess as sp
 import logging
 
 
+@lru_cache(maxsize=128)
 def get_cn_of_ad_user(upn):
     logging.info(f'Searching cn by {upn=}')
     cn = adsearch.by_upn(upn)
@@ -24,6 +27,7 @@ def is_ad_user_exists(upn) -> bool:
         logging.info(f'User {upn=} does not exists')
         return False
 
+
 def get_ad_user_by_upn(upn):
     if f'@{settings.DOMAIN}' not in upn:
         upn += f'@{settings.DOMAIN}'
@@ -33,15 +37,11 @@ def get_ad_user_by_upn(upn):
     if is_ad_user_exists(upn):
         cn = get_cn_of_ad_user(upn)
         ad_user = aduser.ADUser.from_dn(cn)
+        ad_user = aduser.ADUser.from_cn(cn)
         logging.info(f'Found {ad_user=}')
         return ad_user
 
     return None
-
-def unlock_by_upn(upn):
-    ad_user = get_ad_user_by_upn(upn)
-    if ad_user:
-        ad_user.unlock()
 
 
 def get_locked_users_list() -> list:
@@ -52,3 +52,5 @@ def get_locked_users_list() -> list:
             if 'UserPrincipalName' in i:
                 locked_users_list.append(i.split(':')[1].strip().replace(f'@{settings.DOMAIN}', ''))
         return locked_users_list
+
+
