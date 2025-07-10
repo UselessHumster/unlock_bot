@@ -12,7 +12,7 @@ class Settings:
     DATABASE_PATH = os.getenv("DATABASE_PATH")
 
 
-    RESTRICTED_SYMBOLS = ['-', ')', '(', '#', '|', '+', '.', '*', '!',
+    RESTRICTED_SYMBOLS = ['-', ')', '(', '#', '|', '+', '*', '!',
                           '<', '>', '{', '}', '[', ']', '~', '/', '\\']
 
 
