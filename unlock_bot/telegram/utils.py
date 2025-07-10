@@ -1,3 +1,5 @@
+import logging
+
 from unlock_bot.config import settings
 from unlock_bot.config.aiogram_collection import types
 
@@ -13,7 +15,11 @@ def is_command_with_username(message: types.Message):
 
 def clearing_message(message: types.Message):
     msg = message.text
-    if list(filter(lambda symbol: symbol in msg, settings.RESTRICTED_SYMBOLS)):
+    logging.info(f'User sent message {msg=}. Checking for restricted symbols')
+    if restricted := list(filter(lambda symbol: symbol in msg, settings.RESTRICTED_SYMBOLS)):
+        logging.info(f'Found {restricted=} in {msg=}, return empty string')
         return ''
-
-    return message.text.split(' ')[0].lower()
+    logging.info(f'Restricted symbols not found, clearing message')
+    cleared_message = msg.split(' ')[0].lower()
+    logging.info(f'{cleared_message=}')
+    return cleared_message
