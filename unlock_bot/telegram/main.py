@@ -1,6 +1,6 @@
 from unlock_bot.config.aiogram_collection import types, FSMContext, Dispatcher, Text, ContentType
 from unlock_bot.config import bot, settings
-from unlock_bot.telegram.utils import get_tg_username
+from unlock_bot.telegram.utils import get_tg_username, clearing_message
 from unlock_bot.telegram.states import RegStates
 from unlock_bot.database import get_user_by_tg_id, create_user
 from unlock_bot.active_directory import get_ad_user_by_upn, is_ad_user_exists
@@ -33,8 +33,8 @@ async def registering(message: types.Message, state: FSMContext):
             await message.answer('Вы указали почту неправильно, попробуйте ещё раз')
             return
 
-        email = message.text.lower()
-        if not is_ad_user_exists(email.split('@')[0]):
+        email = clearing_message(message)
+        if not is_ad_user_exists(email):
             await message.answer('Такого пользователя не существует, проверьте правильность написания почты, '
                                  'или если у вас менялась фамилия - укажите почту с использованием старой фамилии')
             return
