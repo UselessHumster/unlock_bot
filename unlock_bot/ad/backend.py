@@ -11,16 +11,18 @@ def cache(max_size=128):
         memory = {}
 
         def wrapper(*args, **kwargs):
-            print(memory)
+
             if cached_data := memory.get(args[0]):
                 return cached_data
 
             data = func(*args, **kwargs)
             memory[args[0]] = data
+            logging.info(f'Caching {args[0]}')
 
             if len(memory) > max_size:
                 first_key = next(iter(memory))
-                memory.pop(first_key)
+                removed_item = memory.pop(first_key)
+                logging.info(f'Popping from cache {removed_item}')
 
             return data
 
