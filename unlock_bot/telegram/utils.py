@@ -2,7 +2,7 @@ import logging
 
 from unlock_bot.config import settings
 from unlock_bot.config.aiogram_collection import types
-from unlock_bot.active_directory import get_ad_user_by_upn
+from unlock_bot.ad import get_ad_user_by_upn
 
 def get_tg_username(message):
     if message.from_user.username is not None and message.from_user.full_name is not None:
@@ -20,7 +20,7 @@ def clearing_message(message: types.Message):
     if restricted := list(filter(lambda symbol: symbol in msg, settings.RESTRICTED_SYMBOLS)):
         logging.info(f'Found {restricted=} in {msg=}, return empty string')
         return ''
-    logging.info(f'Restricted symbols not found, clearing message')
+    logging.info('Restricted symbols not found, clearing message')
     cleared_message = msg.split(' ')[0].lower()
     logging.info(f'{cleared_message=}')
     return cleared_message

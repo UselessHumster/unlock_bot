@@ -3,7 +3,7 @@ from unlock_bot.config.aiogram_collection import types, FSMContext, Dispatcher
 from unlock_bot.database import get_user_by_tg_id, change_upn, change_san
 from unlock_bot.telegram.states import RegStates, ConnectStates
 from unlock_bot.telegram.utils import get_tg_username, is_command_with_username, unlock_user
-from unlock_bot.active_directory import get_ad_user_by_upn, is_ad_user_exists, get_locked_users_list
+from unlock_bot.ad import is_ad_user_exists, get_locked_users_list
 
 
 async def command_reg_start(message: types.Message):

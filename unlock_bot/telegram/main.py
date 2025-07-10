@@ -1,10 +1,9 @@
-import logging
 from unlock_bot.config.aiogram_collection import types, FSMContext, Dispatcher, Text, ContentType
 from unlock_bot.config import bot, settings
 from unlock_bot.telegram.utils import get_tg_username, clearing_message, unlock_user
 from unlock_bot.telegram.states import RegStates
 from unlock_bot.database import get_user_by_tg_id, create_user
-from unlock_bot.active_directory import is_ad_user_exists
+from unlock_bot.ad import is_ad_user_exists
 
 
 
