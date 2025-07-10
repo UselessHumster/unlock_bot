@@ -17,8 +17,9 @@ async def main_stream(message: types.Message):
         return
 
     written_upn = clearing_message(message)
-    ad_user = get_ad_user_by_upn(written_upn)
+
     try:
+        ad_user = get_ad_user_by_upn(written_upn)
         ad_user.unlock()
     except Exception as exception:
         logging.warn(f'Error at unlocking AD User {exception=}')
