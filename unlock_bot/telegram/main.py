@@ -4,7 +4,7 @@ from unlock_bot.telegram.utils import get_tg_username, clearing_message, unlock_
 from unlock_bot.telegram.states import RegStates
 from unlock_bot.database import get_user_by_tg_id, create_user
 from unlock_bot.ad import is_ad_user_exists
-
+from unlock_bot import get_domain_from_txt
 
 
 
@@ -20,11 +20,6 @@ async def main_stream(message: types.Message):
     written_upn = clearing_message(message)
     await unlock_user(message, tg_username, written_upn)
 
-
-def get_domain_from_txt(txt):
-    given_domain = txt.split('@')
-    given_domain.reverse()
-    return given_domain[0]
 
 async def registering(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
