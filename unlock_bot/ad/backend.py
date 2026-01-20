@@ -53,12 +53,20 @@ def is_ad_user_exists(upn) -> bool:
         return False
 
 
-def get_ad_user_by_upn(upn):
+def search_correct_upn(upn):
     upn_domain = get_domain_from_txt(upn)
-    if upn_domain not in settings.DOMAINS:
-        return None
+    if upn_domain in settings.DOMAINS:
+        return upn
+    for domain in settings.DOMAINS:
+        try_upn = upn+f'@{domain}'
+        if is_ad_user_exists(try_upn):
+            upn = try_upn
+            break
+    return upn
 
+def get_ad_user_by_upn(upn):
     logging.info(f'Getting user by {upn=}')
+    upn = search_correct_upn
 
     if is_ad_user_exists(upn):
         cn = get_cn_of_ad_user(upn)
