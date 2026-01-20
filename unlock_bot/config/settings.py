@@ -6,7 +6,7 @@ load_dotenv()
 
 class Settings:
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    DOMAIN = os.getenv("DOMAIN").lower()
+    DOMAINS = list(map(lambda d: d.lower(), os.getenv("DOMAINS").split(';')))
     SEARCH_ZONE = os.getenv("SEARCH_ZONE")
     ADMIN_CHAT = int(os.getenv("ADMIN_CHAT"))
     DATABASE_PATH = os.getenv("DATABASE_PATH")

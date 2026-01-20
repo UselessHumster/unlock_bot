@@ -27,7 +27,8 @@ async def registering(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
 
     if current_state == 'RegStates:await_email':
-        if f"@{settings.DOMAIN}" not in message.text.lower():
+        given_domain = message.text.split('@').reverse()[0]
+        if given_domain not in settings.DOMAINS:
             await message.answer('Вы указали почту неправильно, попробуйте ещё раз')
             return
 
