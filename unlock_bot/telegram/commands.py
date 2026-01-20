@@ -80,7 +80,7 @@ async def command_connect(message: types.Message, state: FSMContext):
             await message.answer('Такой учетной записи не существует, попробуйте снова')
             return
 
-        user.connect(written_upn + f'@{settings.DOMAIN}')
+        user.connect(written_upn + f'@{settings.DOMAINS[0]}')
         await message.answer('Ваша учетная запись подключена')
         msg_to_admin = f'✅Пользователь {tg_username} успешно подключил свою ({written_upn}) учетную запись '
         await bot.send_message(text=msg_to_admin, chat_id=settings.ADMIN_CHAT)
@@ -91,20 +91,13 @@ async def command_status(message: types.Message):
     user = get_user_by_tg_id(message.from_user.id)
     if not user:
         return
-
+    if user.permissions != 'admin':
+        return
     locked_users = get_locked_users_list()
     locked_txt = 'Сейчас нет заблокированных пользователей'
-    if user.permissions == 'admin':
-        if locked_users:
-            locked_txt = 'Список заблокированных пользователей:\n\n'
-            locked_txt += "\n".join(locked_users)
-
-
-    elif user.permissions == 'guest':
-        if user.upn.replace(f'@{settings.DOMAIN}') or user.san in locked_users:
-            locked_txt = '❌Ваша учетная запись заблокирована'
-        else:
-            locked_txt = '✅Ваша учетная запись разблокирована'
+    if locked_users:
+        locked_txt = 'Список заблокированных пользователей:\n\n'
+        locked_txt += "\n".join(locked_users)
 
     await message.answer(locked_txt)
 

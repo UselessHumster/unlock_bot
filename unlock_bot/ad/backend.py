@@ -1,4 +1,5 @@
 from unlock_bot.config import settings
+from unlock_bot import get_domain_from_txt
 
 from pyad.pyadexceptions import invalidResults
 from pyad import adsearch, aduser
@@ -53,8 +54,9 @@ def is_ad_user_exists(upn) -> bool:
 
 
 def get_ad_user_by_upn(upn):
-    if f'@{settings.DOMAIN}' not in upn:
-        upn += f'@{settings.DOMAIN}'
+    upn_domain = get_domain_from_txt(upn)
+    if upn_domain not in settings.DOMAINS:
+        return None
 
     logging.info(f'Getting user by {upn=}')
 
@@ -73,7 +75,7 @@ def get_locked_users_list() -> list:
         locked_users_list = []
         for i in locked_users_data.split('\n'):
             if 'UserPrincipalName' in i:
-                locked_users_list.append(i.split(':')[1].strip().replace(f'@{settings.DOMAIN}', ''))
+                locked_users_list.append(i.split(':')[1].strip())
         return locked_users_list
 
 
