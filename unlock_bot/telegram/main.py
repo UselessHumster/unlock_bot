@@ -21,14 +21,16 @@ async def main_stream(message: types.Message):
     await unlock_user(message, tg_username, written_upn)
 
 
-
+def get_domain_from_txt(txt):
+    given_domain = txt.split('@')
+    given_domain.reverse()
+    return given_domain[0]
 
 async def registering(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
 
     if current_state == 'RegStates:await_email':
-        given_domain = message.text.split('@').reverse()[0]
-        if given_domain not in settings.DOMAINS:
+        if get_domain_from_txt(message.text) not in settings.DOMAINS:
             await message.answer('Вы указали почту неправильно, попробуйте ещё раз')
             return
 
