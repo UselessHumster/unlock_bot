@@ -66,7 +66,7 @@ def search_correct_upn(upn):
 
 def get_ad_user_by_upn(upn):
     logging.info(f'Getting user by {upn=}')
-    upn = search_correct_upn
+    upn = search_correct_upn(upn)
 
     if is_ad_user_exists(upn):
         cn = get_cn_of_ad_user(upn)
