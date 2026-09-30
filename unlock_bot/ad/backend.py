@@ -69,7 +69,11 @@ def is_ad_user_exists(upn) -> bool:
 def search_correct_upn(upn):
     settings = get_settings()
     upn_domain = get_domain_from_txt(upn)
-    if upn_domain in settings.domains:
+    if upn_domain in {
+        *settings.domains,
+        "alkaloid.com.mk",
+        "alkaloid.ru",
+    }:
         return upn
     for domain in settings.domains:
         try_upn = upn + f"@{domain}"

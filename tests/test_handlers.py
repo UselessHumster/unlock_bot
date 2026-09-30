@@ -139,17 +139,87 @@ async def test_any_text_unlocks_only_bound_account(tmp_path, monkeypatch, platfo
         requested_upn="user@example.com",
     )
     database.decide_registration(request.id, approved=True, decided_by_external_id=99)
-    unlock = Mock()
-    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
-    message = FakeMessage(platform=platform, text="other.user@example.com <hello>")
-    await controller.unknown_message(message, FakeState())
-    unlock.assert_called_once_with("user@example.com")
-    assert "user@example.com" in message.answer.await_args.args[0]
-    assert (
-        "other.user@example.com &lt;hello&gt;"
-        in app.send_message.await_args.kwargs["text"]
+    unlock = Mock(
+        side_effect=[LookupError("not found"), LookupError("not found"), None]
     )
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message = FakeMessage(platform=platform, text="other.user@example.com")
+    await controller.unknown_message(message, FakeState())
+    assert [call.args[0] for call in unlock.call_args_list] == [
+        "other.user@alkaloid.com.mk",
+        "other.user@alkaloid.ru",
+        "user@example.com",
+    ]
+    assert "закреплённая за вами" in message.answer.await_args.args[0]
+    assert "other.user@example.com" in app.send_message.await_args.kwargs["text"]
     assert app.send_message.await_args.kwargs["platform"] is Platform.TELEGRAM
+    await controller.ad.close()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("ksitnik", ["ksitnik@alkaloid.com.mk", "ksitnik@alkaloid.ru"]),
+        (
+            "ksitnik@alkaloid.ru",
+            ["ksitnik@alkaloid.ru", "ksitnik@alkaloid.com.mk"],
+        ),
+        (
+            "ksitnik@other.example",
+            ["ksitnik@alkaloid.com.mk", "ksitnik@alkaloid.ru"],
+        ),
+        ("/unlock", []),
+        ("random words!", []),
+    ],
+)
+def test_upn_candidates_try_both_alkaloid_domains(text, expected):
+    assert BotController._upn_candidates(text) == expected
+
+
+@pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
+async def test_text_account_success_skips_bound_account(
+    tmp_path, monkeypatch, platform
+):
+    controller, app, database = make_controller(tmp_path)
+    request = database.create_registration_request(
+        platform=platform.value,
+        external_user_id=20,
+        chat_id=20,
+        display_name="Tester",
+        username=None,
+        requested_upn="bound@alkaloid.ru",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    unlock = Mock(return_value=None)
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message = FakeMessage(platform=platform, text="ksitnik@alkaloid.ru")
+    await controller.unknown_message(message, FakeState())
+    unlock.assert_called_once_with("ksitnik@alkaloid.ru")
+    assert "ksitnik@alkaloid.ru" in message.answer.await_args.args[0]
+    assert "по тексту" in app.send_message.await_args.kwargs["text"]
+    await controller.ad.close()
+
+
+@pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
+async def test_unlock_command_does_not_try_command_as_username(
+    tmp_path, monkeypatch, platform
+):
+    controller, _, database = make_controller(tmp_path)
+    request = database.create_registration_request(
+        platform=platform.value,
+        external_user_id=20,
+        chat_id=20,
+        display_name="Tester",
+        username=None,
+        requested_upn="bound@alkaloid.ru",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    unlock = Mock(return_value=None)
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message = FakeMessage(platform=platform, text="/unlock")
+    await controller.command_unlock(message)
+    unlock.assert_called_once_with("bound@alkaloid.ru")
+    assert "закреплённая" in message.answer.await_args.args[0]
     await controller.ad.close()
 
 
@@ -178,7 +248,7 @@ async def test_slow_unlock_does_not_block_event_loop(tmp_path, monkeypatch):
     assert not task.done()
     await task
     message.answer.assert_awaited_once()
-    assert app.send_message.await_count == 2
+    assert app.send_message.await_count == 1
 
 
 async def test_notification_failure_is_retried_after_restart(tmp_path):

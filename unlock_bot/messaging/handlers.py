@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import re
 
 from telegram_with_max import (
     App,
@@ -199,39 +200,88 @@ class BotController:
             )
             return
 
+        raw_text = (message.text or "").strip()
+        text = "" if raw_text.startswith("/") else raw_text
         try:
-            await self.ad.run(self._unlock_ad_user, identity.upn)
+            unlocked_upn, used_fallback, tried = await self.ad.run(
+                self._unlock_text_or_bound, text, identity.upn
+            )
         except Exception as error:
             logger.exception("Failed to unlock AD user %s", identity.upn)
-            await message.answer("❌ Произошла ошибка, попробуйте снова")
+            await message.answer(
+                "❌ Не удалось разблокировать ни учётную запись из сообщения, "
+                "ни закреплённую за вами. Попробуйте ещё раз позже."
+            )
             await self._notify_admin(
                 f"❌ Пользователь {html.escape(self._actor_label(message))} "
-                f"не смог разблокировать {html.escape(identity.upn)}: "
+                f"не смог разблокировать текст {html.escape(text)!r} "
+                f"и закреплённую учётную запись {html.escape(identity.upn)}: "
                 f"{html.escape(str(error))}"
             )
-            await self._notify_unlock_text(message)
             return
 
+        if used_fallback and text:
+            user_result = (
+                f"Не получилось разблокировать «{html.escape(text)}»; "
+                f"разблокирована закреплённая за вами учётная запись "
+                f"{html.escape(unlocked_upn)}."
+            )
+            admin_result = (
+                "не найден текстовый вариант; разблокирована закреплённая учётка"
+            )
+        else:
+            user_result = (
+                f"Разблокирована закреплённая за вами учётная запись "
+                f"{html.escape(unlocked_upn)}."
+            )
+            admin_result = (
+                f"разблокирована закреплённая учётка {html.escape(unlocked_upn)}"
+                if not text
+                else f"разблокирована учётка {html.escape(unlocked_upn)} по тексту"
+            )
         await self._notify_admin(
             f"Пользователь {html.escape(self._actor_label(message))} "
-            f"из {message.platform.value} с ID {message.user_id} успешно "
-            f"разблокировал {html.escape(identity.upn)} ✅"
+            f"из {message.platform.value} (ID {message.user_id}) отправил "
+            f"«{html.escape(text)}». {admin_result}. "
+            f"Проверены варианты: {html.escape(', '.join(tried))} ✅"
         )
-        await self._notify_unlock_text(message)
-        await message.answer(
-            f"✅ По вашему сообщению разблокирована закреплённая за вами "
-            f"учётная запись {html.escape(identity.upn)}."
-        )
+        await message.answer(f"✅ {user_result}")
 
-    async def _notify_unlock_text(self, message: UnifiedMessage) -> None:
-        text = message.text or ""
-        # Escape after splitting: never split an HTML entity or exceed limits.
-        for offset in range(0, len(text), 600):
-            await self._notify_admin(
-                f"Текст пользователя (ID {message.user_id}, "
-                f"{message.platform.value}):\n"
-                + html.escape(text[offset : offset + 600])
-            )
+    def _unlock_text_or_bound(self, text: str, bound_upn: str):
+        tried = []
+        for candidate in self._upn_candidates(text):
+            tried.append(candidate)
+            if candidate.casefold() == bound_upn.casefold():
+                continue
+            try:
+                self._unlock_ad_user(candidate)
+                return candidate, False, tried
+            except LookupError:
+                continue
+            except Exception:
+                logger.exception("Could not unlock candidate AD account %s", candidate)
+                continue
+
+        tried.append(bound_upn)
+        self._unlock_ad_user(bound_upn)
+        return bound_upn, True, tried
+
+    @staticmethod
+    def _upn_candidates(text: str) -> list[str]:
+        value = text.strip().strip("<>()[]{}'\".,;:")
+        domains = ["alkaloid.com.mk", "alkaloid.ru"]
+        if "@" in value:
+            local, suffix = value.rsplit("@", 1)
+            if suffix.casefold() in domains:
+                domains.remove(suffix.casefold())
+                domains.insert(0, suffix.casefold())
+            username = local
+        else:
+            username = value
+        if not username or not re.fullmatch(r"[\w.-]+", username, flags=re.UNICODE):
+            return []
+        username = username.casefold()
+        return [f"{username}@{domain}" for domain in domains]
 
     async def command_connect(
         self, message: UnifiedMessage, state: UnifiedContext
@@ -273,6 +323,9 @@ class BotController:
     async def unknown_message(
         self, message: UnifiedMessage, state: UnifiedContext
     ) -> None:
+        if (message.text or "").lstrip().startswith("/"):
+            await message.answer("Неизвестная команда")
+            return
         if not message.text or not message.text.strip():
             await message.answer("Пожалуйста, отправьте текстовое сообщение")
             return
