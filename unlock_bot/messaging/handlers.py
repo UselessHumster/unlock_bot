@@ -43,7 +43,10 @@ class BotController:
     ) -> None:
         if await self._get_identity(message) is not None:
             await state.clear()
-            await message.answer("Вы уже зарегистрированы")
+            await message.answer(
+                "Вы уже зарегистрированы. Напишите любой текст "
+                "для разблокировки своей учётной записи."
+            )
             return
         await state.set_state(RegistrationStates.await_email)
         await message.answer("Введите вашу рабочую почту")
@@ -162,10 +165,10 @@ class BotController:
             for request in pending:
                 user_text = (
                     "✅Вы успешно зарегистрированы\n\n"
-                    "Для разблокировки используйте /unlock"
+                    "Для разблокировки своей учётной записи напишите любой текст."
                     if request.status == "approved"
                     else "❌Администратор отказал в регистрации. Если это ошибка, "
-                    "используйте /start ещё раз."
+                    "напишите ещё раз, чтобы повторить регистрацию."
                 )
                 try:
                     await self.app.send_message(
@@ -188,11 +191,11 @@ class BotController:
     async def command_unlock(self, message: UnifiedMessage) -> None:
         identity = await self._get_identity(message)
         if identity is None:
-            await message.answer("Для регистрации используйте /start или /reg")
+            await message.answer("Для регистрации напишите вашу рабочую почту")
             return
         if not identity.upn:
             await message.answer(
-                "Для подключения учетной записи используйте /connect <логин>"
+                "Для подключения учетной записи напишите свой рабочий логин"
             )
             return
 
@@ -206,23 +209,36 @@ class BotController:
                 f"не смог разблокировать {html.escape(identity.upn)}: "
                 f"{html.escape(str(error))}"
             )
+            await self._notify_unlock_text(message)
             return
 
-        await message.answer(
-            f"✅ Учетная запись {html.escape(identity.upn)} успешно разблокирована"
-        )
         await self._notify_admin(
             f"Пользователь {html.escape(self._actor_label(message))} "
             f"из {message.platform.value} с ID {message.user_id} успешно "
             f"разблокировал {html.escape(identity.upn)} ✅"
         )
+        await self._notify_unlock_text(message)
+        await message.answer(
+            f"✅ По вашему сообщению разблокирована закреплённая за вами "
+            f"учётная запись {html.escape(identity.upn)}."
+        )
+
+    async def _notify_unlock_text(self, message: UnifiedMessage) -> None:
+        text = message.text or ""
+        # Escape after splitting: never split an HTML entity or exceed limits.
+        for offset in range(0, len(text), 600):
+            await self._notify_admin(
+                f"Текст пользователя (ID {message.user_id}, "
+                f"{message.platform.value}):\n"
+                + html.escape(text[offset : offset + 600])
+            )
 
     async def command_connect(
         self, message: UnifiedMessage, state: UnifiedContext
     ) -> None:
         identity = await self._get_identity(message)
         if identity is None:
-            await message.answer("Для регистрации используйте /start или /reg")
+            await message.answer("Для регистрации напишите вашу рабочую почту")
             return
         if identity.upn:
             await message.answer("Ваша учетная запись уже подключена")
@@ -254,16 +270,27 @@ class BotController:
         for offset in range(0, len(text), 600):
             await message.answer(html.escape(text[offset : offset + 600]))
 
-    async def unknown_message(self, message: UnifiedMessage) -> None:
-        if await self._get_identity(message) is None:
-            await message.answer("У Вас не хватает прав доступа")
+    async def unknown_message(
+        self, message: UnifiedMessage, state: UnifiedContext
+    ) -> None:
+        if not message.text or not message.text.strip():
+            await message.answer("Пожалуйста, отправьте текстовое сообщение")
             return
-        await message.answer("Используйте команды /unlock, /connect или /status")
+        identity = await self._get_identity(message)
+        if identity is None:
+            await state.set_state(RegistrationStates.await_email)
+            await self.register_email(message, state)
+        elif not identity.upn:
+            await state.set_state(ConnectStates.await_upn)
+            await self.connect_upn(message, state)
+        else:
+            await state.clear()
+            await self.command_unlock(message)
 
     async def _connect(self, message: UnifiedMessage, value: str) -> bool:
         identity = await self._get_identity(message)
         if identity is None:
-            await message.answer("Для регистрации используйте /start или /reg")
+            await message.answer("Для регистрации напишите вашу рабочую почту")
             return False
         if identity.upn:
             await message.answer("Ваша учетная запись уже подключена")
@@ -291,7 +318,9 @@ class BotController:
         except IdentityConflictError:
             await message.answer("Эта учетная запись уже подключена к другому профилю")
             return False
-        await message.answer("Ваша учетная запись подключена")
+        await message.answer(
+            "Ваша учетная запись подключена. Напишите любой текст для её разблокировки."
+        )
         await self._notify_admin(
             f"✅Пользователь {html.escape(self._actor_label(message))} "
             f"подключил учетную запись {html.escape(resolved_upn)}"
@@ -375,5 +404,5 @@ def create_router(controller: BotController) -> Router:
     router.callback(startswith="reg:", platforms=[Platform.TELEGRAM])(
         guarded(controller.admin_decision)
     )
-    router.message()(guarded(controller.unknown_message))
+    router.message(with_state=True)(guarded(controller.unknown_message))
     return router

@@ -2,8 +2,9 @@ import asyncio
 import threading
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from telegram_with_max import Platform
 
 from unlock_bot.ad.worker import ADWorker
@@ -126,19 +127,39 @@ async def test_max_registration_is_approved_from_telegram(tmp_path, monkeypatch)
     assert callback.answer.await_args_list[-1].args == ("Уже обработано",)
 
 
-async def test_unknown_text_never_unlocks_ad_user(tmp_path, monkeypatch):
+@pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
+async def test_any_text_unlocks_only_bound_account(tmp_path, monkeypatch, platform):
+    controller, app, database = make_controller(tmp_path)
+    request = database.create_registration_request(
+        platform=platform.value,
+        external_user_id=20,
+        chat_id=20,
+        display_name="Tester",
+        username=None,
+        requested_upn="user@example.com",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    unlock = Mock()
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message = FakeMessage(platform=platform, text="other.user@example.com <hello>")
+    await controller.unknown_message(message, FakeState())
+    unlock.assert_called_once_with("user@example.com")
+    assert "user@example.com" in message.answer.await_args.args[0]
+    assert (
+        "other.user@example.com &lt;hello&gt;"
+        in app.send_message.await_args.kwargs["text"]
+    )
+    assert app.send_message.await_args.kwargs["platform"] is Platform.TELEGRAM
+    await controller.ad.close()
+
+
+async def test_attachment_does_not_unlock(tmp_path, monkeypatch):
     controller, _, database = make_controller(tmp_path)
     await register_max_user(controller, database)
-    unlock = AsyncMock()
-    monkeypatch.setattr("unlock_bot.messaging.handlers.get_ad_user_by_upn", unlock)
-    message = FakeMessage(text="other.user@example.com")
-
-    await controller.unknown_message(message)
-
-    unlock.assert_not_awaited()
-    message.answer.assert_awaited_once_with(
-        "Используйте команды /unlock, /connect или /status"
-    )
+    unlock = Mock()
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    await controller.unknown_message(FakeMessage(text=None), FakeState())
+    unlock.assert_not_called()
 
 
 async def test_slow_unlock_does_not_block_event_loop(tmp_path, monkeypatch):
@@ -157,7 +178,7 @@ async def test_slow_unlock_does_not_block_event_loop(tmp_path, monkeypatch):
     assert not task.done()
     await task
     message.answer.assert_awaited_once()
-    assert app.send_message.await_count == 1
+    assert app.send_message.await_count == 2
 
 
 async def test_notification_failure_is_retried_after_restart(tmp_path):
