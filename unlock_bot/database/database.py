@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,6 +119,7 @@ class Database:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.engine = create_engine(f"sqlite:///{self.path}", echo=False)
+        self._decision_lock = threading.Lock()
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,6 +269,23 @@ class Database:
             return self._registration_record(request)
 
     def decide_registration(
+        self,
+        request_id: str,
+        *,
+        approved: bool,
+        decided_by_external_id: int | str,
+    ) -> RegistrationDecision | None:
+        # Serialize callbacks in this process. SQLite can return
+        # SQLITE_BUSY_SNAPSHOT on Windows even after busy_timeout when two
+        # deferred transactions both read before upgrading to a write lock.
+        with self._decision_lock:
+            return self._decide_registration(
+                request_id,
+                approved=approved,
+                decided_by_external_id=decided_by_external_id,
+            )
+
+    def _decide_registration(
         self,
         request_id: str,
         *,
