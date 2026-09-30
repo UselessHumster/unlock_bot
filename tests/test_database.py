@@ -163,3 +163,39 @@ def test_interrupted_migration_rolls_back_and_retries(tmp_path):
     )
     database.decide_registration(request.id, approved=True, decided_by_external_id=1)
     assert database.get_identity("max", 2).permissions == "admin"
+
+
+def test_shared_legacy_accounts_preserve_access_without_elevating_max(tmp_path):
+    path = tmp_path / "shared.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE users (telegram_id INT, permissions TEXT, san TEXT, upn TEXT)"
+        )
+        connection.executemany(
+            "INSERT INTO users VALUES (?, ?, ?, ?)",
+            [
+                (1, "admin", "shared", "shared@example.com"),
+                (1, "admin", "shared", "shared@example.com"),
+                (2, "guest", "shared", "shared@example.com"),
+            ],
+        )
+    database = Database(path)
+    database.initialize()
+    assert database.get_identity("telegram", 1).permissions == "admin"
+    assert database.get_identity("telegram", 2).permissions == "guest"
+    for user_id in (3, 4):
+        request = database.create_registration_request(
+            platform="max",
+            external_user_id=user_id,
+            chat_id=user_id,
+            display_name="Shared account user",
+            username=None,
+            requested_upn="SHARED@example.com",
+        )
+        database.decide_registration(
+            request.id, approved=True, decided_by_external_id=1
+        )
+        identity = database.get_identity("max", user_id)
+        assert identity.permissions == "guest"
+        assert identity.profile_id != database.get_identity("telegram", 1).profile_id
+    database.initialize()

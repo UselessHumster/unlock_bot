@@ -30,8 +30,9 @@ class Profile(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     permissions: Mapped[str] = mapped_column(String(50), default="guest")
-    san: Mapped[str | None] = mapped_column(String(100), unique=True)
-    upn: Mapped[str | None] = mapped_column(String(100), unique=True)
+    # Legacy shared AD accounts retain separate profiles and permissions.
+    san: Mapped[str | None] = mapped_column(String(100))
+    upn: Mapped[str | None] = mapped_column(String(100), index=True)
 
 
 class ExternalIdentity(Base):
@@ -145,9 +146,19 @@ class Database:
             if "users" in inspect(connection).get_table_names():
                 connection.execute(text("ALTER TABLE users RENAME TO users_legacy"))
             Base.metadata.create_all(connection)
-            legacy_users = connection.execute(
-                text("SELECT telegram_id, permissions, san, upn FROM users_legacy")
-            ).mappings()
+            legacy_users = (
+                connection.execute(
+                    text(
+                        "SELECT DISTINCT telegram_id, permissions, san, upn "
+                        "FROM users_legacy"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            ids = [int(row["telegram_id"]) for row in legacy_users]
+            if len(ids) != len(set(ids)):
+                raise IdentityConflictError("Conflicting legacy Telegram records")
             for legacy in legacy_users:
                 telegram_id = int(legacy["telegram_id"])
                 existing = connection.execute(
@@ -282,11 +293,14 @@ class Database:
                 )
 
             if approved:
-                profile = session.scalar(
+                profiles = session.scalars(
                     select(Profile).where(
                         func.lower(Profile.upn) == request.requested_upn
                     )
-                )
+                ).all()
+                # Never select an arbitrary owner or inherit an administrator's
+                # permissions when a legacy AD account has multiple owners.
+                profile = profiles[0] if len(profiles) == 1 else None
                 if profile is None:
                     profile = Profile(
                         permissions="guest",
