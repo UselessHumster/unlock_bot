@@ -196,7 +196,8 @@ class BotController:
             return
         if not identity.upn:
             await message.answer(
-                "Для подключения учетной записи напишите свой рабочий логин"
+                "У вас пока нет закреплённой учётной записи. "
+                "Отправьте логин обычным сообщением, чтобы найти и разблокировать её."
             )
             return
 
@@ -220,6 +221,7 @@ class BotController:
             )
             return
 
+        is_bound_account = unlocked_upn.casefold() == identity.upn.casefold()
         if used_fallback and text:
             user_result = (
                 f"Не получилось разблокировать «{html.escape(text)}»; "
@@ -229,6 +231,11 @@ class BotController:
             admin_result = (
                 "не найден текстовый вариант; разблокирована закреплённая учётка"
             )
+        elif not is_bound_account:
+            user_result = (
+                f"Разблокирована другая учётная запись {html.escape(unlocked_upn)}."
+            )
+            admin_result = f"разблокирована другая учётка {html.escape(unlocked_upn)}"
         else:
             user_result = (
                 f"Разблокирована закреплённая за вами учётная запись "
@@ -334,11 +341,69 @@ class BotController:
             await state.set_state(RegistrationStates.await_email)
             await self.register_email(message, state)
         elif not identity.upn:
-            await state.set_state(ConnectStates.await_upn)
-            await self.connect_upn(message, state)
+            await state.clear()
+            await self._unlock_and_pin_first_account(message, identity)
         else:
             await state.clear()
             await self.command_unlock(message)
+
+    async def _unlock_and_pin_first_account(
+        self, message: UnifiedMessage, identity: IdentityRecord
+    ) -> None:
+        text = (message.text or "").strip()
+        candidates = self._upn_candidates(text)
+        tried: list[str] = []
+        for candidate in candidates:
+            tried.append(candidate)
+            try:
+                await self.ad.run(self._unlock_ad_user, candidate)
+            except LookupError:
+                continue
+            except Exception:
+                logger.exception("Failed to unlock candidate AD account %s", candidate)
+                continue
+
+            try:
+                pinned_identity, newly_pinned = await asyncio.to_thread(
+                    self.database.bind_discovered_account,
+                    message.platform.value,
+                    message.user_id,
+                    upn=candidate,
+                )
+            except Exception:
+                logger.exception("Could not pin successfully unlocked AD account")
+                await message.answer(
+                    f"✅ Разблокирована учётная запись {html.escape(candidate)}, "
+                    "но не удалось закрепить её за вами. Сообщите администратору."
+                )
+                return
+
+            if newly_pinned:
+                result = f"Она закреплена за вами как {pinned_identity.upn}."
+            else:
+                result = f"За вами уже закреплена учётная запись {pinned_identity.upn}."
+            await message.answer(
+                f"✅ Разблокирована учётная запись {html.escape(candidate)}. "
+                f"{html.escape(result)}"
+            )
+            await self._notify_admin(
+                f"Пользователь {html.escape(self._actor_label(message))} "
+                f"из {message.platform.value} (ID {message.user_id}) отправил "
+                f"«{html.escape(text)}». Разблокирована учётка "
+                f"{html.escape(candidate)}. {html.escape(result)}"
+            )
+            return
+
+        await message.answer(
+            "Не удалось найти или разблокировать учётную запись по этому тексту. "
+            "Попробуйте другой логин или используйте /connect для привязки."
+        )
+        await self._notify_admin(
+            f"Пользователь {html.escape(self._actor_label(message))} "
+            f"из {message.platform.value} (ID {message.user_id}) отправил "
+            f"«{html.escape(text)}». Среди учётных записей "
+            f"{html.escape(', '.join(tried))} совпадений нет."
+        )
 
     async def _connect(self, message: UnifiedMessage, value: str) -> bool:
         identity = await self._get_identity(message)

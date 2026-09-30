@@ -196,7 +196,37 @@ async def test_text_account_success_skips_bound_account(
     await controller.unknown_message(message, FakeState())
     unlock.assert_called_once_with("ksitnik@alkaloid.ru")
     assert "ksitnik@alkaloid.ru" in message.answer.await_args.args[0]
-    assert "по тексту" in app.send_message.await_args.kwargs["text"]
+    assert "другая учётка" in app.send_message.await_args.kwargs["text"]
+    await controller.ad.close()
+
+
+@pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
+async def test_first_successful_unlock_pins_account_for_existing_unbound_user(
+    tmp_path, monkeypatch, platform
+):
+    controller, app, database = make_controller(tmp_path)
+    request = database.create_registration_request(
+        platform=platform.value,
+        external_user_id=20,
+        chat_id=20,
+        display_name="Existing user",
+        username=None,
+        requested_upn="existing@example.com",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    with database.engine.begin() as connection:
+        connection.exec_driver_sql("UPDATE profiles SET upn=NULL, san=NULL")
+    unlock = Mock(side_effect=[LookupError("not found"), None])
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message = FakeMessage(platform=platform, text="newuser")
+
+    await controller.unknown_message(message, FakeState())
+
+    assert database.get_identity(platform.value, 20).upn == "newuser@alkaloid.ru"
+    assert unlock.call_args_list[0].args == ("newuser@alkaloid.com.mk",)
+    assert unlock.call_args_list[1].args == ("newuser@alkaloid.ru",)
+    assert "закреплена за вами" in message.answer.await_args.args[0]
+    assert app.send_message.await_args.kwargs["platform"] is Platform.TELEGRAM
     await controller.ad.close()
 
 

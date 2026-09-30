@@ -120,6 +120,7 @@ class Database:
         self.path = Path(path)
         self.engine = create_engine(f"sqlite:///{self.path}", echo=False)
         self._decision_lock = threading.Lock()
+        self._identity_lock = threading.Lock()
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -419,6 +420,30 @@ class Database:
             profile.san = normalized_upn
             session.flush()
             return self._identity_record(identity, profile)
+
+    def bind_discovered_account(
+        self, platform: str, external_user_id: int | str, *, upn: str
+    ) -> tuple[IdentityRecord, bool]:
+        """Pin the first AD account successfully unlocked by an unbound identity."""
+        normalized_upn = upn.strip().lower()
+        with self._identity_lock, Session(self.engine) as session, session.begin():
+            row = session.execute(
+                select(ExternalIdentity, Profile)
+                .join(Profile, ExternalIdentity.profile_id == Profile.id)
+                .where(
+                    ExternalIdentity.platform == platform,
+                    ExternalIdentity.external_user_id == str(external_user_id),
+                )
+            ).first()
+            if row is None:
+                raise LookupError("Identity is not registered")
+            identity, profile = row
+            if profile.upn:
+                return self._identity_record(identity, profile), False
+            profile.upn = normalized_upn
+            profile.san = normalized_upn
+            session.flush()
+            return self._identity_record(identity, profile), True
 
     @staticmethod
     def _identity_record(
