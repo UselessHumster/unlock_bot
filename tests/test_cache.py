@@ -1,14 +1,15 @@
 from unlock_bot.ad.backend import cache
-from unlock_bot.ad import get_ad_user_by_upn
 
 
-def test_cache():
+def test_cache_reuses_value_for_same_key():
+    calls = 0
+
     @cache()
-    def test_caching(username):
-        data = f'{username} data'
-        return data
+    def cached(username):
+        nonlocal calls
+        calls += 1
+        return f"{username} data"
 
-    assert test_caching('username') == 'username data'
-    assert test_caching('username2') == 'username2 data'
-
-    assert get_ad_user_by_upn('nmoroz@alkaloid.com.mk') == 'CN=Natalia NM. Moroz,OU=Rusija Office Users,OU=Office,OU=Rusija,OU=Branch Offices,DC=AlkaloidAD,DC=local'
+    assert cached("username") == "username data"
+    assert cached("username") == "username data"
+    assert calls == 1

@@ -1,6 +1,15 @@
-from unlock_bot.database.database import get_user_by_tg_id, change_san, change_upn, create_user
+from unlock_bot.database.database import (
+    Database,
+    IdentityConflictError,
+    IdentityRecord,
+    RegistrationDecision,
+    RegistrationRecord,
+)
 
-__all__ = ['get_user_by_tg_id',
-           'change_upn',
-           'change_san',
-           'create_user']
+__all__ = [
+    "Database",
+    "IdentityConflictError",
+    "IdentityRecord",
+    "RegistrationDecision",
+    "RegistrationRecord",
+]

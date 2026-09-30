@@ -5,19 +5,20 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "aiogram",
     "dotenv>=0.9.9",
-    "pyad>=0.6.0",
-    "pywin32>=310",
+    "pyad>=0.6.0; sys_platform == 'win32'",
+    "pywin32>=310; sys_platform == 'win32'",
     "sqlalchemy>=2.0.41",
+    "telegram-with-max>=0.2.1,<0.3",
 ]
 
 [tool.uv.sources]
-aiogram = { url = "https://github.com/aiogram/aiogram/archive/refs/heads/dev-2.x.zip" }
+telegram-with-max = { git = "https://github.com/UselessHumster/TelegramWithMax.git", rev = "558ec6879fab16633f9e5dbba6b380b00ec94b29" }
 
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
+    "pytest-asyncio>=1.2,<2",
     "ruff>=0.12.2",
 ]
 
@@ -30,3 +31,15 @@ packages = ["unlock_bot"]
 
 [project.scripts]
 unlock_bot = "unlock_bot.scripts.start:start"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001"]

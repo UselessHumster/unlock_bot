@@ -1,0 +1,202 @@
+import asyncio
+import threading
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from telegram_with_max import Platform
+
+from unlock_bot.ad.worker import ADWorker
+from unlock_bot.config import Settings
+from unlock_bot.database import Database
+from unlock_bot.messaging.handlers import BotController
+from unlock_bot.messaging.states import RegistrationStates
+
+
+class FakeState:
+    def __init__(self):
+        self.value = None
+
+    async def set_state(self, state):
+        self.value = str(state)
+
+    async def clear(self):
+        self.value = None
+
+
+class FakeMessage:
+    def __init__(
+        self,
+        *,
+        platform=Platform.MAX,
+        user_id=20,
+        chat_id=20,
+        text=None,
+        display_name="MAX User",
+        username="max_user",
+    ):
+        self.platform = platform
+        self.user_id = user_id
+        self.chat_id = chat_id
+        self.text = text
+        self.display_name = display_name
+        self.username = username
+        self.answer = AsyncMock()
+        self.edit_text = AsyncMock()
+
+
+def make_controller(tmp_path):
+    database = Database(tmp_path / "bot.db")
+    database.initialize()
+    settings = Settings(
+        telegram_bot_token="telegram-token",
+        max_bot_token="max-token",
+        domains=("example.com",),
+        search_zone="OU=Users,DC=example,DC=com",
+        admin_chat=99,
+        database_path=str(tmp_path / "bot.db"),
+    )
+    app = SimpleNamespace(send_message=AsyncMock())
+    return BotController(app=app, database=database, settings=settings), app, database
+
+
+async def register_max_user(controller, database, *, user_id=20):
+    request = database.create_registration_request(
+        platform="max",
+        external_user_id=user_id,
+        chat_id=user_id,
+        display_name="MAX User",
+        username="max_user",
+        requested_upn="user@example.com",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+
+
+async def test_start_uses_common_state_for_max(tmp_path):
+    controller, _, _ = make_controller(tmp_path)
+    message = FakeMessage(text="/start")
+    state = FakeState()
+
+    await controller.command_start(message, state)
+
+    assert state.value == str(RegistrationStates.await_email)
+    message.answer.assert_awaited_once_with("Введите вашу рабочую почту")
+
+
+async def test_max_registration_is_approved_from_telegram(tmp_path, monkeypatch):
+    controller, app, database = make_controller(tmp_path)
+    monkeypatch.setattr(
+        "unlock_bot.messaging.handlers.is_ad_user_exists", lambda upn: True
+    )
+    message = FakeMessage(text="user@example.com")
+    state = FakeState()
+
+    await controller.register_email(message, state)
+
+    admin_call = app.send_message.await_args_list[0]
+    assert admin_call.kwargs["platform"] is Platform.TELEGRAM
+    keyboard = admin_call.kwargs["reply_markup"]
+    request_id = keyboard.rows[0][0].callback_data.split(":")[1]
+
+    admin_message = FakeMessage(
+        platform=Platform.TELEGRAM,
+        user_id=99,
+        chat_id=99,
+        text="request",
+        display_name="Admin",
+        username="admin",
+    )
+    callback = SimpleNamespace(
+        platform=Platform.TELEGRAM,
+        user_id=99,
+        data=f"reg:{request_id}:yes",
+        message=admin_message,
+        answer=AsyncMock(),
+    )
+    await controller.admin_decision(callback)
+
+    assert database.get_identity("max", 20).upn == "user@example.com"
+    user_call = app.send_message.await_args_list[1]
+    assert user_call.kwargs["platform"] is Platform.MAX
+    assert user_call.kwargs["chat_id"] == 20
+    admin_message.edit_text.assert_awaited_once()
+
+    await controller.admin_decision(callback)
+    assert app.send_message.await_count == 2
+    assert callback.answer.await_args_list[-1].args == ("Уже обработано",)
+
+
+async def test_unknown_text_never_unlocks_ad_user(tmp_path, monkeypatch):
+    controller, _, database = make_controller(tmp_path)
+    await register_max_user(controller, database)
+    unlock = AsyncMock()
+    monkeypatch.setattr("unlock_bot.messaging.handlers.get_ad_user_by_upn", unlock)
+    message = FakeMessage(text="other.user@example.com")
+
+    await controller.unknown_message(message)
+
+    unlock.assert_not_awaited()
+    message.answer.assert_awaited_once_with(
+        "Используйте команды /unlock, /connect или /status"
+    )
+
+
+async def test_slow_unlock_does_not_block_event_loop(tmp_path, monkeypatch):
+    controller, app, database = make_controller(tmp_path)
+    await register_max_user(controller, database)
+    monkeypatch.setattr(
+        controller,
+        "_unlock_ad_user",
+        lambda upn: time.sleep(0.08),
+    )
+    message = FakeMessage(text="/unlock")
+
+    task = asyncio.create_task(controller.command_unlock(message))
+    await asyncio.sleep(0.01)
+
+    assert not task.done()
+    await task
+    message.answer.assert_awaited_once()
+    assert app.send_message.await_count == 1
+
+
+async def test_notification_failure_is_retried_after_restart(tmp_path):
+    controller, app, database = make_controller(tmp_path)
+    request = database.create_registration_request(
+        platform="max",
+        external_user_id=20,
+        chat_id=30,
+        display_name="Test",
+        username=None,
+        requested_upn="user@example.com",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    app.send_message.side_effect = RuntimeError("offline")
+    await controller.deliver_notifications()
+    assert len(database.pending_notifications()) == 1
+
+    restarted = Database(database.path)
+    restarted.initialize()
+    controller.database = restarted
+    app.send_message.side_effect = None
+    await controller.deliver_notifications()
+    assert restarted.pending_notifications() == []
+    assert app.send_message.await_args.kwargs["chat_id"] == 30
+
+
+async def test_ad_worker_uses_one_non_event_loop_thread():
+    worker = ADWorker()
+    try:
+        threads = await asyncio.gather(
+            *[worker.run(threading.get_ident) for _ in range(10)]
+        )
+        assert len(set(threads)) == 1
+        assert threads[0] != threading.get_ident()
+    finally:
+        await worker.close()
+
+
+def test_blank_input_is_rejected(tmp_path):
+    controller, _, _ = make_controller(tmp_path)
+    for value in (None, "", "  ", "user@example.com other"):
+        assert controller._clean_input(value) == ""
