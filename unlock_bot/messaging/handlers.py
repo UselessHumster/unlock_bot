@@ -56,11 +56,13 @@ class BotController:
         self, message: UnifiedMessage, state: UnifiedContext
     ) -> None:
         email = self._clean_input(message.text)
-        if not email or get_domain_from_txt(email) not in self.settings.domains:
+        allowed_domains = {*self.settings.domains, "alkaloid.ru", "alkaloid.com.mk"}
+        if not email or get_domain_from_txt(email) not in allowed_domains:
             await message.answer("Вы указали почту неправильно, попробуйте ещё раз")
             return
 
-        if not await self.ad.run(is_ad_user_exists, email):
+        resolved_email = await self.ad.run(self._resolve_registration_upn, email)
+        if resolved_email is None:
             await message.answer(
                 "Такого пользователя не существует, проверьте правильность "
                 "написания почты, или укажите почту со старой фамилией"
@@ -74,7 +76,7 @@ class BotController:
             chat_id=message.chat_id,
             display_name=message.display_name,
             username=message.username,
-            requested_upn=email,
+            requested_upn=resolved_email,
         )
         keyboard = InlineKeyboard(
             [
@@ -87,7 +89,8 @@ class BotController:
         await self._notify_admin_user(
             message,
             "Заявка на привязку",
-            f"📧 Учётная запись: <code>{html.escape(email)}</code>\n"
+            f"📧 Запрошено: <code>{html.escape(email)}</code>\n"
+            f"📌 Найдено в AD: <code>{html.escape(resolved_email)}</code>\n"
             "Подтвердить регистрацию?",
             reply_markup=keyboard,
         )
@@ -223,22 +226,23 @@ class BotController:
         is_bound_account = unlocked_upn.casefold() == identity.upn.casefold()
         if used_fallback and text:
             user_result = (
-                f"Не получилось разблокировать «{html.escape(text)}»; "
+                f"Не получилось разблокировать «{html.escape(self._user_text(text))}»; "
                 f"разблокирована закреплённая за вами учётная запись "
-                f"{html.escape(unlocked_upn)}."
+                f"{html.escape(self._user_text(unlocked_upn))}."
             )
             admin_result = (
                 "не найден текстовый вариант; разблокирована закреплённая учётка"
             )
         elif not is_bound_account:
             user_result = (
-                f"Разблокирована другая учётная запись {html.escape(unlocked_upn)}."
+                "Разблокирована другая учётная запись "
+                f"{html.escape(self._user_text(unlocked_upn))}."
             )
             admin_result = f"разблокирована другая учётка {html.escape(unlocked_upn)}"
         else:
             user_result = (
                 f"Разблокирована закреплённая за вами учётная запись "
-                f"{html.escape(unlocked_upn)}."
+                f"{html.escape(self._user_text(unlocked_upn))}."
             )
             admin_result = (
                 f"разблокирована закреплённая учётка {html.escape(unlocked_upn)}"
@@ -325,6 +329,7 @@ class BotController:
         else:
             text = "Сейчас нет заблокированных пользователей"
         # Leave room for HTML escaping and the smaller MAX message limit.
+        text = self._user_text(text)
         for offset in range(0, len(text), 600):
             await message.answer(html.escape(text[offset : offset + 600]))
 
@@ -374,7 +379,8 @@ class BotController:
             except Exception:
                 logger.exception("Could not pin successfully unlocked AD account")
                 await message.answer(
-                    f"✅ Разблокирована учётная запись {html.escape(candidate)}, "
+                    "✅ Разблокирована учётная запись "
+                    f"{html.escape(self._user_text(candidate))}, "
                     "но не удалось закрепить её за вами. Сообщите администратору."
                 )
                 await self._notify_admin_user(
@@ -392,8 +398,9 @@ class BotController:
             else:
                 result = f"За вами уже закреплена учётная запись {pinned_identity.upn}."
             await message.answer(
-                f"✅ Разблокирована учётная запись {html.escape(candidate)}. "
-                f"{html.escape(result)}"
+                "✅ Разблокирована учётная запись "
+                f"{html.escape(self._user_text(candidate))}. "
+                f"{html.escape(self._user_text(result))}"
             )
             await self._notify_admin_user(
                 message,
@@ -431,8 +438,15 @@ class BotController:
         if not written_upn:
             await message.answer("Укажите корректный логин")
             return False
-        resolved_upn = await self.ad.run(search_correct_upn, written_upn)
-        if not await self.ad.run(is_ad_user_exists, resolved_upn):
+        if get_domain_from_txt(written_upn) in {"alkaloid.ru", "alkaloid.com.mk"}:
+            resolved_upn = await self.ad.run(
+                self._resolve_registration_upn, written_upn
+            )
+        else:
+            resolved_upn = await self.ad.run(search_correct_upn, written_upn)
+            if not await self.ad.run(is_ad_user_exists, resolved_upn):
+                resolved_upn = None
+        if resolved_upn is None:
             identity = await self._get_identity(message)
             await self._notify_admin_user(
                 message,
@@ -534,6 +548,26 @@ class BotController:
         if any(symbol in cleaned for symbol in self.settings.restricted_symbols):
             return ""
         return cleaned
+
+    @staticmethod
+    def _user_text(value: str) -> str:
+        """Show the public email domain without changing the underlying AD UPN."""
+        return re.sub(
+            r"@alkaloid\.com\.mk\b", "@alkaloid.ru", value, flags=re.IGNORECASE
+        )
+
+    @staticmethod
+    def _resolve_registration_upn(email: str) -> str | None:
+        local, separator, domain = email.rpartition("@")
+        candidates = (
+            [f"{local}@alkaloid.ru", f"{local}@alkaloid.com.mk"]
+            if separator and domain.casefold() in {"alkaloid.ru", "alkaloid.com.mk"}
+            else [email]
+        )
+        for candidate in candidates:
+            if is_ad_user_exists(candidate):
+                return candidate
+        return None
 
     @staticmethod
     def _unlock_ad_user(upn: str) -> None:

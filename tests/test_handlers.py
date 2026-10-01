@@ -128,6 +128,49 @@ async def test_max_registration_is_approved_from_telegram(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
+async def test_registration_falls_back_to_real_ad_domain_and_hides_it(
+    tmp_path, monkeypatch, platform
+):
+    controller, app, database = make_controller(tmp_path)
+    lookup = Mock(side_effect=[False, True])
+    monkeypatch.setattr("unlock_bot.messaging.handlers.is_ad_user_exists", lookup)
+    message = FakeMessage(platform=platform, text="user@alkaloid.ru")
+    await controller.register_email(message, FakeState())
+    assert [call.args[0] for call in lookup.call_args_list] == [
+        "user@alkaloid.ru",
+        "user@alkaloid.com.mk",
+    ]
+    admin_call = app.send_message.await_args
+    request_id = (
+        admin_call.kwargs["reply_markup"].rows[0][0].callback_data.split(":")[1]
+    )
+    database.decide_registration(request_id, approved=True, decided_by_external_id=99)
+    assert database.get_identity(platform.value, 20).upn == "user@alkaloid.com.mk"
+    unlock = Mock()
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message.text = "/unlock"
+    await controller.command_unlock(message)
+    unlock.assert_called_once_with("user@alkaloid.com.mk")
+    reply = message.answer.await_args.args[0]
+    assert "user@alkaloid.ru" in reply
+    assert "alkaloid.com.mk" not in reply
+    await controller.ad.close()
+
+
+@pytest.mark.parametrize(
+    ("exists", "expected"),
+    [([True], "user@alkaloid.ru"), ([False, False], None)],
+)
+def test_registration_prefers_public_domain_and_rejects_missing_account(
+    monkeypatch, exists, expected
+):
+    lookup = Mock(side_effect=exists)
+    monkeypatch.setattr("unlock_bot.messaging.handlers.is_ad_user_exists", lookup)
+    assert BotController._resolve_registration_upn("user@alkaloid.ru") == expected
+    assert lookup.call_args_list[0].args == ("user@alkaloid.ru",)
+
+
+@pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
 async def test_any_text_unlocks_only_bound_account(tmp_path, monkeypatch, platform):
     controller, app, database = make_controller(tmp_path)
     request = database.create_registration_request(
