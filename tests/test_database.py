@@ -13,6 +13,31 @@ def make_database(tmp_path):
     return database
 
 
+def test_rebind_updates_only_expected_profile_and_preserves_permissions(tmp_path):
+    database = make_database(tmp_path)
+    request = database.create_registration_request(
+        platform="telegram",
+        external_user_id=20,
+        chat_id=20,
+        display_name="Existing user",
+        username=None,
+        requested_upn="user@alkaloid.com.mk",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    identity = database.get_identity("telegram", 20)
+    assert database.rebind_account(
+        identity.profile_id, expected_upn=identity.upn, new_upn="user@alkaloid.ru"
+    )
+    rebound = database.get_identity("telegram", 20)
+    assert rebound.upn == rebound.san == "user@alkaloid.ru"
+    assert rebound.profile_id == identity.profile_id
+    assert rebound.permissions == identity.permissions
+    assert not database.rebind_account(
+        identity.profile_id, expected_upn=identity.upn, new_upn="another@alkaloid.ru"
+    )
+    assert database.get_identity("telegram", 20).upn == "user@alkaloid.ru"
+
+
 def test_registration_links_telegram_and_max_to_one_profile(tmp_path):
     database = make_database(tmp_path)
     telegram = database.create_registration_request(

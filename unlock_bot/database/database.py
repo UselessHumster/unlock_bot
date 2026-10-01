@@ -13,11 +13,13 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    case,
     create_engine,
     func,
     inspect,
     select,
     text,
+    update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -444,6 +446,23 @@ class Database:
             profile.san = normalized_upn
             session.flush()
             return self._identity_record(identity, profile), True
+
+    def rebind_account(
+        self, profile_id: int, *, expected_upn: str, new_upn: str
+    ) -> bool:
+        """Replace an obsolete UPN without merging profiles or changing rights."""
+        old = expected_upn.strip().lower()
+        new = new_upn.strip().lower()
+        with self._identity_lock, Session(self.engine) as session, session.begin():
+            result = session.execute(
+                update(Profile)
+                .where(Profile.id == profile_id, func.lower(Profile.upn) == old)
+                .values(
+                    upn=new,
+                    san=case((func.lower(Profile.san) == old, new), else_=Profile.san),
+                )
+            )
+            return result.rowcount == 1
 
     @staticmethod
     def _identity_record(

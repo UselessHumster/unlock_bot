@@ -223,7 +223,29 @@ class BotController:
             )
             return
 
-        is_bound_account = unlocked_upn.casefold() == identity.upn.casefold()
+        rebind_note = ""
+        if used_fallback and unlocked_upn.casefold() != identity.upn.casefold():
+            old_upn = identity.upn
+            try:
+                changed = await asyncio.to_thread(
+                    self.database.rebind_account,
+                    identity.profile_id,
+                    expected_upn=old_upn,
+                    new_upn=unlocked_upn,
+                )
+                identity = await self._get_identity(message) or identity
+                if changed:
+                    rebind_note = (
+                        f"\n📌 Привязка обновлена: {html.escape(old_upn)} → "
+                        f"{html.escape(unlocked_upn)}"
+                    )
+            except Exception:
+                logger.exception("Unlocked fallback account but could not save binding")
+                rebind_note = "\n⚠️ Не удалось сохранить обновлённую привязку"
+
+        is_bound_account = used_fallback or (
+            unlocked_upn.casefold() == identity.upn.casefold()
+        )
         if used_fallback and text:
             user_result = (
                 f"Не получилось разблокировать «{html.escape(self._user_text(text))}»; "
@@ -253,7 +275,7 @@ class BotController:
             message,
             "Разблокировка",
             f"💬 Запрос: «{html.escape(text[:800])}»\n"
-            f"🔎 Результат: {admin_result}.",
+            f"🔎 Результат: {admin_result}.{rebind_note}",
             identity=identity,
         )
         await message.answer(f"✅ {user_result}")
@@ -261,9 +283,10 @@ class BotController:
     def _unlock_text_or_bound(self, text: str, bound_upn: str):
         tried = []
         for candidate in self._upn_candidates(text):
-            tried.append(candidate)
             if candidate.casefold() == bound_upn.casefold():
-                continue
+                unlocked, fallback, tried = self._unlock_bound_account(bound_upn, tried)
+                return unlocked, fallback and unlocked != bound_upn, tried
+            tried.append(candidate)
             try:
                 self._unlock_ad_user(candidate)
                 return candidate, False, tried
@@ -273,9 +296,22 @@ class BotController:
                 logger.exception("Could not unlock candidate AD account %s", candidate)
                 continue
 
+        return self._unlock_bound_account(bound_upn, tried)
+
+    def _unlock_bound_account(self, bound_upn: str, tried: list[str]):
         tried.append(bound_upn)
-        self._unlock_ad_user(bound_upn)
-        return bound_upn, True, tried
+        try:
+            self._unlock_ad_user(bound_upn)
+            return bound_upn, True, tried
+        except Exception:
+            local, separator, domain = bound_upn.rpartition("@")
+            if not separator or domain.casefold() != "alkaloid.com.mk":
+                raise
+            logger.warning("Bound account %s failed; trying alkaloid.ru", bound_upn)
+            fallback_upn = f"{local}@alkaloid.ru"
+            tried.append(fallback_upn)
+            self._unlock_ad_user(fallback_upn)
+            return fallback_upn, True, tried
 
     @staticmethod
     def _upn_candidates(text: str) -> list[str]:
@@ -416,8 +452,7 @@ class BotController:
         await self._notify_admin_user(
             message,
             "Учётная запись не найдена",
-            f"💬 Запрос: «{html.escape(text[:800])}»\n"
-            "❌ Разблокировка не выполнена",
+            f"💬 Запрос: «{html.escape(text[:800])}»\n❌ Разблокировка не выполнена",
             identity=identity,
         )
 

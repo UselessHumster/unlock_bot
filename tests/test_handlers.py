@@ -157,6 +157,43 @@ async def test_registration_falls_back_to_real_ad_domain_and_hides_it(
     await controller.ad.close()
 
 
+@pytest.mark.parametrize("platform", [Platform.MAX, Platform.TELEGRAM])
+@pytest.mark.parametrize("fallback_succeeds", [True, False])
+async def test_failed_internal_binding_switches_only_after_successful_unlock(
+    tmp_path, monkeypatch, platform, fallback_succeeds
+):
+    controller, app, database = make_controller(tmp_path)
+    request = database.create_registration_request(
+        platform=platform.value,
+        external_user_id=20,
+        chat_id=20,
+        display_name="Existing user",
+        username=None,
+        requested_upn="user@alkaloid.com.mk",
+    )
+    database.decide_registration(request.id, approved=True, decided_by_external_id=99)
+    unlock = Mock(
+        side_effect=[
+            LookupError("old account missing"),
+            None if fallback_succeeds else LookupError("fallback missing"),
+        ]
+    )
+    monkeypatch.setattr(controller, "_unlock_ad_user", unlock)
+    message = FakeMessage(platform=platform, text="/unlock")
+    await controller.command_unlock(message)
+    assert [call.args[0] for call in unlock.call_args_list] == [
+        "user@alkaloid.com.mk",
+        "user@alkaloid.ru",
+    ]
+    assert database.get_identity(platform.value, 20).upn == (
+        "user@alkaloid.ru" if fallback_succeeds else "user@alkaloid.com.mk"
+    )
+    if fallback_succeeds:
+        assert "закреплённая за вами" in message.answer.await_args.args[0]
+        assert "Привязка обновлена" in app.send_message.await_args.kwargs["text"]
+    await controller.ad.close()
+
+
 @pytest.mark.parametrize(
     ("exists", "expected"),
     [([True], "user@alkaloid.ru"), ([False, False], None)],
