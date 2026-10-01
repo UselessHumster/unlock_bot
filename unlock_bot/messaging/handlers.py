@@ -204,7 +204,7 @@ class BotController:
         raw_text = (message.text or "").strip()
         text = "" if raw_text.startswith("/") else raw_text
         try:
-            unlocked_upn, used_fallback, tried = await self.ad.run(
+            unlocked_upn, used_fallback, _tried = await self.ad.run(
                 self._unlock_text_or_bound, text, identity.upn
             )
         except Exception as error:
@@ -253,8 +253,7 @@ class BotController:
             message,
             "Разблокировка",
             f"💬 Запрос: «{html.escape(text[:800])}»\n"
-            f"🔎 Результат: {admin_result}.\n"
-            f"🧭 Проверено: {html.escape(', '.join(tried))}",
+            f"🔎 Результат: {admin_result}.",
             identity=identity,
         )
         await message.answer(f"✅ {user_result}")
@@ -358,9 +357,7 @@ class BotController:
     ) -> None:
         text = (message.text or "").strip()
         candidates = self._upn_candidates(text)
-        tried: list[str] = []
         for candidate in candidates:
-            tried.append(candidate)
             try:
                 await self.ad.run(self._unlock_ad_user, candidate)
             except LookupError:
@@ -420,8 +417,6 @@ class BotController:
             message,
             "Учётная запись не найдена",
             f"💬 Запрос: «{html.escape(text[:800])}»\n"
-            "🔎 Проверено: "
-            f"{html.escape(', '.join(tried) or 'нет допустимых вариантов')}\n"
             "❌ Разблокировка не выполнена",
             identity=identity,
         )
@@ -522,14 +517,11 @@ class BotController:
             f"🔗 {username}",
             f"🌐 {html.escape(message.platform.value)} · ID: "
             f"<code>{message.user_id}</code>",
-            f"💬 Chat ID: <code>{message.chat_id}</code>",
         ]
-        if identity is not None:
-            lines.append(f"🛡️ Права: {html.escape(identity.permissions)}")
-            if identity.upn:
-                lines.append(
-                    f"📌 Закреплённая учётка: <code>{html.escape(identity.upn)}</code>"
-                )
+        if identity is not None and identity.upn:
+            lines.append(
+                f"📌 Закреплённая учётка: <code>{html.escape(identity.upn)}</code>"
+            )
         lines.append(details)
         await self.app.send_message(
             platform=Platform.TELEGRAM,
