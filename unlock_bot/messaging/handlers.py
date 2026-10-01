@@ -84,14 +84,11 @@ class BotController:
                 ]
             ]
         )
-        await self.app.send_message(
-            platform=Platform.TELEGRAM,
-            chat_id=self.settings.admin_chat,
-            text=(
-                f"Пользователь {html.escape(self._actor_label(message))} "
-                f"из {message.platform.value} с ID {message.user_id} хочет "
-                f"подключить учетную запись {html.escape(email)}. Принять?"
-            ),
+        await self._notify_admin_user(
+            message,
+            "Заявка на привязку",
+            f"📧 Учётная запись: <code>{html.escape(email)}</code>\n"
+            "Подтвердить регистрацию?",
             reply_markup=keyboard,
         )
         await message.answer(
@@ -213,11 +210,13 @@ class BotController:
                 "❌ Не удалось разблокировать ни учётную запись из сообщения, "
                 "ни закреплённую за вами. Попробуйте ещё раз позже."
             )
-            await self._notify_admin(
-                f"❌ Пользователь {html.escape(self._actor_label(message))} "
-                f"не смог разблокировать текст {html.escape(text)!r} "
-                f"и закреплённую учётную запись {html.escape(identity.upn)}: "
-                f"{html.escape(str(error))}"
+            await self._notify_admin_user(
+                message,
+                "Ошибка разблокировки",
+                f"💬 Запрос: «{html.escape(text[:800])}»\n"
+                f"📌 Закреплённая учётка: <code>{html.escape(identity.upn)}</code>\n"
+                f"⚠️ {html.escape(str(error)[:800])}",
+                identity=identity,
             )
             return
 
@@ -246,11 +245,13 @@ class BotController:
                 if not text
                 else f"разблокирована учётка {html.escape(unlocked_upn)} по тексту"
             )
-        await self._notify_admin(
-            f"Пользователь {html.escape(self._actor_label(message))} "
-            f"из {message.platform.value} (ID {message.user_id}) отправил "
-            f"«{html.escape(text)}». {admin_result}. "
-            f"Проверены варианты: {html.escape(', '.join(tried))} ✅"
+        await self._notify_admin_user(
+            message,
+            "Разблокировка",
+            f"💬 Запрос: «{html.escape(text[:800])}»\n"
+            f"🔎 Результат: {admin_result}.\n"
+            f"🧭 Проверено: {html.escape(', '.join(tried))}",
+            identity=identity,
         )
         await message.answer(f"✅ {user_result}")
 
@@ -376,6 +377,14 @@ class BotController:
                     f"✅ Разблокирована учётная запись {html.escape(candidate)}, "
                     "но не удалось закрепить её за вами. Сообщите администратору."
                 )
+                await self._notify_admin_user(
+                    message,
+                    "Учётка разблокирована, привязка не выполнена",
+                    f"💬 Запрос: «{html.escape(text[:800])}»\n"
+                    f"✅ Разблокирована: <code>{html.escape(candidate)}</code>\n"
+                    "⚠️ Не удалось закрепить учётку за профилем",
+                    identity=identity,
+                )
                 return
 
             if newly_pinned:
@@ -386,11 +395,13 @@ class BotController:
                 f"✅ Разблокирована учётная запись {html.escape(candidate)}. "
                 f"{html.escape(result)}"
             )
-            await self._notify_admin(
-                f"Пользователь {html.escape(self._actor_label(message))} "
-                f"из {message.platform.value} (ID {message.user_id}) отправил "
-                f"«{html.escape(text)}». Разблокирована учётка "
-                f"{html.escape(candidate)}. {html.escape(result)}"
+            await self._notify_admin_user(
+                message,
+                "Разблокировка и привязка",
+                f"💬 Запрос: «{html.escape(text[:800])}»\n"
+                f"✅ Разблокирована: <code>{html.escape(candidate)}</code>\n"
+                f"📌 {html.escape(result)}",
+                identity=identity,
             )
             return
 
@@ -398,11 +409,14 @@ class BotController:
             "Не удалось найти или разблокировать учётную запись по этому тексту. "
             "Попробуйте другой логин или используйте /connect для привязки."
         )
-        await self._notify_admin(
-            f"Пользователь {html.escape(self._actor_label(message))} "
-            f"из {message.platform.value} (ID {message.user_id}) отправил "
-            f"«{html.escape(text)}». Среди учётных записей "
-            f"{html.escape(', '.join(tried))} совпадений нет."
+        await self._notify_admin_user(
+            message,
+            "Учётная запись не найдена",
+            f"💬 Запрос: «{html.escape(text[:800])}»\n"
+            "🔎 Проверено: "
+            f"{html.escape(', '.join(tried) or 'нет допустимых вариантов')}\n"
+            "❌ Разблокировка не выполнена",
+            identity=identity,
         )
 
     async def _connect(self, message: UnifiedMessage, value: str) -> bool:
@@ -419,10 +433,13 @@ class BotController:
             return False
         resolved_upn = await self.ad.run(search_correct_upn, written_upn)
         if not await self.ad.run(is_ad_user_exists, resolved_upn):
-            await self._notify_admin(
-                f"❌Пользователь {html.escape(self._actor_label(message))} "
-                f"попытался подключить {html.escape(written_upn)}, но такой "
-                "учетной записи не существует"
+            identity = await self._get_identity(message)
+            await self._notify_admin_user(
+                message,
+                "Привязка не выполнена",
+                f"📧 Запрошено: <code>{html.escape(written_upn)}</code>\n"
+                "❌ Учётная запись не найдена в Active Directory",
+                identity=identity,
             )
             await message.answer("Такой учетной записи не существует")
             return False
@@ -435,13 +452,23 @@ class BotController:
             )
         except IdentityConflictError:
             await message.answer("Эта учетная запись уже подключена к другому профилю")
+            await self._notify_admin_user(
+                message,
+                "Привязка не выполнена",
+                f"📧 Запрошена: <code>{html.escape(resolved_upn)}</code>\n"
+                "⚠️ Учётная запись уже закреплена за другим профилем",
+                identity=identity,
+            )
             return False
         await message.answer(
             "Ваша учетная запись подключена. Напишите любой текст для её разблокировки."
         )
-        await self._notify_admin(
-            f"✅Пользователь {html.escape(self._actor_label(message))} "
-            f"подключил учетную запись {html.escape(resolved_upn)}"
+        identity = await self._get_identity(message)
+        await self._notify_admin_user(
+            message,
+            "Учётная запись привязана",
+            f"📌 Учётная запись: <code>{html.escape(resolved_upn)}</code>",
+            identity=identity,
         )
         return True
 
@@ -462,11 +489,39 @@ class BotController:
             )
         return identity
 
-    async def _notify_admin(self, text: str) -> None:
+    async def _notify_admin_user(
+        self,
+        message: UnifiedMessage,
+        heading: str,
+        details: str,
+        *,
+        identity: IdentityRecord | None = None,
+        reply_markup: InlineKeyboard | None = None,
+    ) -> None:
+        """Send a compact, consistent admin event with enough user identifiers."""
+        username = (
+            f"@{html.escape(message.username)}" if message.username else "не указан"
+        )
+        lines = [
+            f"🔔 <b>{html.escape(heading)}</b>",
+            f"👤 {html.escape(message.display_name or 'Имя не указано')}",
+            f"🔗 {username}",
+            f"🌐 {html.escape(message.platform.value)} · ID: "
+            f"<code>{message.user_id}</code>",
+            f"💬 Chat ID: <code>{message.chat_id}</code>",
+        ]
+        if identity is not None:
+            lines.append(f"🛡️ Права: {html.escape(identity.permissions)}")
+            if identity.upn:
+                lines.append(
+                    f"📌 Закреплённая учётка: <code>{html.escape(identity.upn)}</code>"
+                )
+        lines.append(details)
         await self.app.send_message(
             platform=Platform.TELEGRAM,
             chat_id=self.settings.admin_chat,
-            text=text,
+            text="\n".join(lines),
+            reply_markup=reply_markup,
         )
 
     def _clean_input(self, value: str | None) -> str:
@@ -479,12 +534,6 @@ class BotController:
         if any(symbol in cleaned for symbol in self.settings.restricted_symbols):
             return ""
         return cleaned
-
-    @staticmethod
-    def _actor_label(message: UnifiedMessage) -> str:
-        if message.username:
-            return f"@{message.username} ({message.display_name})"
-        return message.display_name
 
     @staticmethod
     def _unlock_ad_user(upn: str) -> None:
